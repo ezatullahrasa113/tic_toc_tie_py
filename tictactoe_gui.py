@@ -7,6 +7,10 @@ HUMAN = "X"
 AI = "O"
 EMPTY = " "
 
+HUMAN_COLOR = "green"
+AI_COLOR = "gold"   # زرد
+EMPTY_COLOR = "black"
+
 Board = List[List[str]]
 
 # ================= GAME LOGIC =================
@@ -149,6 +153,8 @@ class TicTacToeGUI:
         self.board = new_board()
         self.buttons = [[None]*3 for _ in range(3)]
 
+        self.game_started = False  # بعد از اولین حرکت انسان، الگوریتم قفل می‌شود
+
         # choose algorithm BEFORE game
         self.algorithm = tk.StringVar(value="alphabeta")
 
@@ -159,15 +165,25 @@ class TicTacToeGUI:
         algo_frame.grid(row=1, column=0, columnspan=3)
 
         tk.Label(algo_frame, text="AI algorithm: ").pack(side=tk.LEFT)
-        tk.Radiobutton(algo_frame, text="Minimax", variable=self.algorithm, value="minimax").pack(side=tk.LEFT)
-        tk.Radiobutton(algo_frame, text="Alpha-Beta", variable=self.algorithm, value="alphabeta").pack(side=tk.LEFT)
+
+        self.rb_minimax = tk.Radiobutton(
+            algo_frame, text="Minimax", variable=self.algorithm, value="minimax"
+        )
+        self.rb_minimax.pack(side=tk.LEFT)
+
+        self.rb_ab = tk.Radiobutton(
+            algo_frame, text="Alpha-Beta", variable=self.algorithm, value="alphabeta"
+        )
+        self.rb_ab.pack(side=tk.LEFT)
 
         # Board buttons
         for i in range(3):
             for j in range(3):
                 btn = tk.Button(
-                    self.root, text=" ", width=6, height=3, font=("Arial", 20),
-                    command=lambda i=i, j=j: self.human_move(i, j)
+                    self.root, text=" ", width=6, height=3,
+                    font=("Arial", 20),
+                    command=lambda i=i, j=j: self.human_move(i, j),
+                    fg=EMPTY_COLOR
                 )
                 btn.grid(row=i+2, column=j, padx=2, pady=2)
                 self.buttons[i][j] = btn
@@ -177,13 +193,42 @@ class TicTacToeGUI:
         self.ai_move_label.grid(row=5, column=0, columnspan=3, pady=(6, 2))
 
         self.compare_label = tk.Label(self.root, text="", justify="left", font=("Consolas", 10))
-        self.compare_label.grid(row=6, column=0, columnspan=3, pady=(2, 8))
+        self.compare_label.grid(row=6, column=0, columnspan=3, pady=(2, 4))
+
+        # Reset button
+        self.reset_btn = tk.Button(self.root, text="Reset / New Game", command=self.reset_game)
+        self.reset_btn.grid(row=7, column=0, columnspan=3, pady=(6, 10))
 
         self.root.mainloop()
+
+    def lock_algorithm_choice(self):
+        self.rb_minimax.config(state=tk.DISABLED)
+        self.rb_ab.config(state=tk.DISABLED)
+
+    def unlock_algorithm_choice(self):
+        self.rb_minimax.config(state=tk.NORMAL)
+        self.rb_ab.config(state=tk.NORMAL)
+
+    def reset_game(self):
+        self.board = new_board()
+        self.game_started = False
+        self.unlock_algorithm_choice()
+
+        self.turn_label.config(text="Your turn (X)")
+        self.ai_move_label.config(text="AI move: -")
+        self.compare_label.config(text="")
+
+        for i in range(3):
+            for j in range(3):
+                self.buttons[i][j].config(text=" ", fg=EMPTY_COLOR, state=tk.NORMAL)
 
     def human_move(self, i, j):
         if self.board[i][j] != EMPTY:
             return
+
+        if not self.game_started:
+            self.game_started = True
+            self.lock_algorithm_choice()
 
         apply_move(self.board, (i, j), HUMAN)
         self.update_ui()
@@ -193,16 +238,14 @@ class TicTacToeGUI:
 
         self.turn_label.config(text="AI thinking...")
         self.disable_board()
-
-        # run AI after a tiny delay so UI updates
         self.root.after(80, self.ai_turn)
 
     def ai_turn(self):
-        # IMPORTANT: compare BOTH algorithms on the same state
+        # compare BOTH algorithms on the same state
         mm_mv, mm_nodes, mm_t = best_move_minimax(self.board)
         ab_mv, ab_nodes, ab_t = best_move_alphabeta(self.board)
 
-        # choose actual move based on selected algorithm
+        # choose actual move
         if self.algorithm.get() == "minimax":
             chosen_mv = mm_mv
             chosen_name = "Minimax"
@@ -210,7 +253,6 @@ class TicTacToeGUI:
             chosen_mv = ab_mv
             chosen_name = "Alpha-Beta"
 
-        # apply chosen move
         apply_move(self.board, chosen_mv, AI)
         self.update_ui()
 
@@ -233,7 +275,13 @@ class TicTacToeGUI:
     def update_ui(self):
         for i in range(3):
             for j in range(3):
-                self.buttons[i][j].config(text=self.board[i][j])
+                val = self.board[i][j]
+                if val == HUMAN:
+                    self.buttons[i][j].config(text=val, fg=HUMAN_COLOR)
+                elif val == AI:
+                    self.buttons[i][j].config(text=val, fg=AI_COLOR)
+                else:
+                    self.buttons[i][j].config(text=" ", fg=EMPTY_COLOR)
 
     def disable_board(self):
         for i in range(3):
@@ -245,6 +293,8 @@ class TicTacToeGUI:
             for j in range(3):
                 if self.board[i][j] == EMPTY:
                     self.buttons[i][j].config(state=tk.NORMAL)
+                else:
+                    self.buttons[i][j].config(state=tk.DISABLED)
 
     def check_end(self):
         w = winner(self.board)
@@ -255,7 +305,9 @@ class TicTacToeGUI:
                 messagebox.showinfo("Result", "AI wins! (O)")
             else:
                 messagebox.showinfo("Result", "Draw!")
-            self.root.destroy()
+            # بعد از پایان بازی، صفحه را غیرفعال می‌کنیم ولی برنامه باز می‌ماند تا Reset بزنند
+            self.disable_board()
+            self.turn_label.config(text="Game over. Press Reset / New Game.")
             return True
         return False
 
