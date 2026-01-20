@@ -1,4 +1,5 @@
 from typing import List, Optional, Tuple
+import time
 
 HUMAN = "X"
 AI = "O"
@@ -19,13 +20,10 @@ def print_board(b: Board) -> None:
 
 def winner(b: Board) -> Optional[str]:
     lines = []
-    # rows
-    lines.extend([b[i] for i in range(3)])
-    # cols
-    lines.extend([[b[0][j], b[1][j], b[2][j]] for j in range(3)])
-    # diagonals
-    lines.append([b[0][0], b[1][1], b[2][2]])
-    lines.append([b[0][2], b[1][1], b[2][0]])
+    lines.extend([b[i] for i in range(3)])  # rows
+    lines.extend([[b[0][j], b[1][j], b[2][j]] for j in range(3)])  # cols
+    lines.append([b[0][0], b[1][1], b[2][2]])  # diag
+    lines.append([b[0][2], b[1][1], b[2][0]])  # diag
 
     for line in lines:
         if line[0] != EMPTY and line[0] == line[1] == line[2]:
@@ -44,18 +42,17 @@ def game_over(b: Board) -> Tuple[bool, Optional[str]]:
     return False, None
 
 def available_moves(b: Board) -> List[Tuple[int, int]]:
-    moves = []
-    for i in range(3):
-        for j in range(3):
-            if b[i][j] == EMPTY:
-                moves.append((i, j))
-    return moves
+    return [(i, j) for i in range(3) for j in range(3) if b[i][j] == EMPTY]
 
 def apply_move(b: Board, move: Tuple[int, int], player: str) -> None:
     i, j = move
     if b[i][j] != EMPTY:
         raise ValueError("Illegal move: cell is not empty")
     b[i][j] = player
+
+def undo_move(b: Board, move: Tuple[int, int]) -> None:
+    i, j = move
+    b[i][j] = EMPTY
 
 def human_input_move(b: Board) -> Tuple[int, int]:
     while True:
@@ -74,10 +71,154 @@ def human_input_move(b: Board) -> Tuple[int, int]:
             continue
         return (i, j)
 
+# ---------- SCORING ----------
+def terminal_score(b: Board, depth: int) -> Optional[int]:
+    """
+    +10 - depth : AI wins sooner is better
+    -10 + depth : AI loses later is better
+    0 : draw
+    """
+    w = winner(b)
+    if w == AI:
+        return 10 - depth
+    if w == HUMAN:
+        return -10 + depth
+    if is_full(b):
+        return 0
+    return None
+
+# ---------- MINIMAX ----------
+def minimax(b: Board, depth: int, is_maximizing: bool, counter: List[int]) -> int:
+    counter[0] += 1
+
+    ts = terminal_score(b, depth)
+    if ts is not None:
+        return ts
+
+    if is_maximizing:
+        best = -10_000
+        for mv in available_moves(b):
+            apply_move(b, mv, AI)
+            val = minimax(b, depth + 1, False, counter)
+            undo_move(b, mv)
+            if val > best:
+                best = val
+        return best
+    else:
+        best = 10_000
+        for mv in available_moves(b):
+            apply_move(b, mv, HUMAN)
+            val = minimax(b, depth + 1, True, counter)
+            undo_move(b, mv)
+            if val < best:
+                best = val
+        return best
+
+def best_move_minimax(b: Board) -> Tuple[Tuple[int, int], int, float]:
+    counter = [0]
+    t0 = time.perf_counter()
+
+    best_mv = None
+    best_val = -10_000
+
+    for mv in available_moves(b):
+        apply_move(b, mv, AI)
+        val = minimax(b, 1, False, counter)
+        undo_move(b, mv)
+
+        if val > best_val:
+            best_val = val
+            best_mv = mv
+
+    t1 = time.perf_counter()
+    assert best_mv is not None
+    return best_mv, counter[0], (t1 - t0)
+
+# ---------- ALPHA-BETA ----------
+def alphabeta(b: Board, depth: int, is_maximizing: bool, alpha: int, beta: int, counter: List[int]) -> int:
+    counter[0] += 1
+
+    ts = terminal_score(b, depth)
+    if ts is not None:
+        return ts
+
+    if is_maximizing:
+        value = -10_000
+        for mv in available_moves(b):
+            apply_move(b, mv, AI)
+            value = max(value, alphabeta(b, depth + 1, False, alpha, beta, counter))
+            undo_move(b, mv)
+            alpha = max(alpha, value)
+            if alpha >= beta:
+                break  # prune
+        return value
+    else:
+        value = 10_000
+        for mv in available_moves(b):
+            apply_move(b, mv, HUMAN)
+            value = min(value, alphabeta(b, depth + 1, True, alpha, beta, counter))
+            undo_move(b, mv)
+            beta = min(beta, value)
+            if alpha >= beta:
+                break  # prune
+        return value
+
+def best_move_alphabeta(b: Board) -> Tuple[Tuple[int, int], int, float]:
+    counter = [0]
+    t0 = time.perf_counter()
+
+    best_mv = None
+    best_val = -10_000
+    alpha = -10_000
+    beta = 10_000
+
+    for mv in available_moves(b):
+        apply_move(b, mv, AI)
+        val = alphabeta(b, 1, False, alpha, beta, counter)
+        undo_move(b, mv)
+
+        if val > best_val:
+            best_val = val
+            best_mv = mv
+
+        alpha = max(alpha, best_val)  # tighten root alpha
+
+    t1 = time.perf_counter()
+    assert best_mv is not None
+    return best_mv, counter[0], (t1 - t0)
+
+# ---------- UTILS ----------
+def algo_choice() -> str:
+    while True:
+        s = input("Choose AI algorithm: [1] Minimax  [2] Alpha-Beta : ").strip()
+        if s == "1":
+            return "minimax"
+        if s == "2":
+            return "alphabeta"
+        print("Please enter 1 or 2.")
+
+def ai_play(b: Board, algo: str) -> None:
+    # For project comparison: we can also compute BOTH metrics every AI turn (optional)
+    if algo == "minimax":
+        mv, nodes, sec = best_move_minimax(b)
+        name = "Minimax"
+    else:
+        mv, nodes, sec = best_move_alphabeta(b)
+        name = "Alpha-Beta"
+
+    print(f"\nAI ({name}) plays: {mv[0]*3+mv[1]+1}")
+    print(f"Nodes evaluated: {nodes}")
+    print(f"Time: {sec*1000:.3f} ms")
+    apply_move(b, mv, AI)
+
 def main_cli():
     b = new_board()
     current = HUMAN  # human starts
-    print("Tic-Tac-Toe (X=Human, O=AI)\n")
+    algo = algo_choice()
+
+    print("\nTic-Tac-Toe (X=Human, O=AI)")
+    print(f"AI algorithm: {algo}\n")
+
     while True:
         print_board(b)
         over, w = game_over(b)
@@ -95,10 +236,7 @@ def main_cli():
             apply_move(b, mv, HUMAN)
             current = AI
         else:
-            # فعلاً هوش مصنوعی نداریم: یک حرکت ساده انجام می‌دهد (بعداً minimax می‌گذاریم)
-            mv = available_moves(b)[0]
-            print(f"\nAI plays: {(mv[0]*3+mv[1]+1)}")
-            apply_move(b, mv, AI)
+            ai_play(b, algo)
             current = HUMAN
 
 if __name__ == "__main__":
