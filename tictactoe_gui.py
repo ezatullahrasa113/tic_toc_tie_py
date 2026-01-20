@@ -15,12 +15,13 @@ def new_board():
     return [[EMPTY]*3 for _ in range(3)]
 
 def winner(b):
-    lines = b + list(zip(*b)) + [
-        [b[0][0], b[1][1], b[2][2]],
-        [b[0][2], b[1][1], b[2][0]]
-    ]
+    lines = []
+    lines.extend(b)  # rows
+    lines.extend([[b[0][j], b[1][j], b[2][j]] for j in range(3)])  # cols
+    lines.append([b[0][0], b[1][1], b[2][2]])
+    lines.append([b[0][2], b[1][1], b[2][0]])
     for line in lines:
-        if line[0] != EMPTY and line.count(line[0]) == 3:
+        if line[0] != EMPTY and line[0] == line[1] == line[2]:
             return line[0]
     return None
 
@@ -55,24 +56,27 @@ def minimax(b, depth, is_max, counter):
         return ts
 
     if is_max:
-        best = -1e9
+        best = -10_000
         for mv in available_moves(b):
             apply_move(b, mv, AI)
-            best = max(best, minimax(b, depth+1, False, counter))
+            val = minimax(b, depth+1, False, counter)
             undo_move(b, mv)
+            best = max(best, val)
         return best
     else:
-        best = 1e9
+        best = 10_000
         for mv in available_moves(b):
             apply_move(b, mv, HUMAN)
-            best = min(best, minimax(b, depth+1, True, counter))
+            val = minimax(b, depth+1, True, counter)
             undo_move(b, mv)
+            best = min(best, val)
         return best
 
 def best_move_minimax(b):
     counter = [0]
-    start = time.perf_counter()
-    best_val = -1e9
+    t0 = time.perf_counter()
+
+    best_val = -10_000
     best_mv = None
 
     for mv in available_moves(b):
@@ -83,7 +87,8 @@ def best_move_minimax(b):
             best_val = val
             best_mv = mv
 
-    return best_mv, counter[0], (time.perf_counter() - start)
+    t1 = time.perf_counter()
+    return best_mv, counter[0], (t1 - t0)
 
 # ================= ALPHA-BETA =================
 
@@ -94,28 +99,33 @@ def alphabeta(b, depth, is_max, alpha, beta, counter):
         return ts
 
     if is_max:
+        value = -10_000
         for mv in available_moves(b):
             apply_move(b, mv, AI)
-            alpha = max(alpha, alphabeta(b, depth+1, False, alpha, beta, counter))
+            value = max(value, alphabeta(b, depth+1, False, alpha, beta, counter))
             undo_move(b, mv)
+            alpha = max(alpha, value)
             if alpha >= beta:
                 break
-        return alpha
+        return value
     else:
+        value = 10_000
         for mv in available_moves(b):
             apply_move(b, mv, HUMAN)
-            beta = min(beta, alphabeta(b, depth+1, True, alpha, beta, counter))
+            value = min(value, alphabeta(b, depth+1, True, alpha, beta, counter))
             undo_move(b, mv)
+            beta = min(beta, value)
             if alpha >= beta:
                 break
-        return beta
+        return value
 
 def best_move_alphabeta(b):
     counter = [0]
-    start = time.perf_counter()
-    best_val = -1e9
+    t0 = time.perf_counter()
+
+    best_val = -10_000
     best_mv = None
-    alpha, beta = -1e9, 1e9
+    alpha, beta = -10_000, 10_000
 
     for mv in available_moves(b):
         apply_move(b, mv, AI)
@@ -126,82 +136,123 @@ def best_move_alphabeta(b):
             best_mv = mv
         alpha = max(alpha, best_val)
 
-    return best_mv, counter[0], (time.perf_counter() - start)
+    t1 = time.perf_counter()
+    return best_mv, counter[0], (t1 - t0)
 
 # ================= GUI =================
 
 class TicTacToeGUI:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Tic-Tac-Toe AI")
+        self.root.title("Tic-Tac-Toe AI (Minimax vs Alpha-Beta)")
 
         self.board = new_board()
         self.buttons = [[None]*3 for _ in range(3)]
+
+        # choose algorithm BEFORE game
         self.algorithm = tk.StringVar(value="alphabeta")
 
-        self.info = tk.Label(self.root, text="Your turn (X)", font=("Arial", 12))
-        self.info.grid(row=0, column=0, columnspan=3)
+        self.turn_label = tk.Label(self.root, text="Your turn (X)", font=("Arial", 12))
+        self.turn_label.grid(row=0, column=0, columnspan=3, pady=(6, 2))
 
-        tk.Radiobutton(self.root, text="Minimax", variable=self.algorithm,
-                       value="minimax").grid(row=1, column=0)
-        tk.Radiobutton(self.root, text="Alpha-Beta", variable=self.algorithm,
-                       value="alphabeta").grid(row=1, column=2)
+        algo_frame = tk.Frame(self.root)
+        algo_frame.grid(row=1, column=0, columnspan=3)
 
+        tk.Label(algo_frame, text="AI algorithm: ").pack(side=tk.LEFT)
+        tk.Radiobutton(algo_frame, text="Minimax", variable=self.algorithm, value="minimax").pack(side=tk.LEFT)
+        tk.Radiobutton(algo_frame, text="Alpha-Beta", variable=self.algorithm, value="alphabeta").pack(side=tk.LEFT)
+
+        # Board buttons
         for i in range(3):
             for j in range(3):
-                btn = tk.Button(self.root, text=" ", width=6, height=3,
-                                font=("Arial", 20),
-                                command=lambda i=i, j=j: self.human_move(i, j))
-                btn.grid(row=i+2, column=j)
+                btn = tk.Button(
+                    self.root, text=" ", width=6, height=3, font=("Arial", 20),
+                    command=lambda i=i, j=j: self.human_move(i, j)
+                )
+                btn.grid(row=i+2, column=j, padx=2, pady=2)
                 self.buttons[i][j] = btn
 
-        self.stats = tk.Label(self.root, text="")
-        self.stats.grid(row=5, column=0, columnspan=3)
+        # info panels
+        self.ai_move_label = tk.Label(self.root, text="AI move: -", font=("Arial", 11))
+        self.ai_move_label.grid(row=5, column=0, columnspan=3, pady=(6, 2))
+
+        self.compare_label = tk.Label(self.root, text="", justify="left", font=("Consolas", 10))
+        self.compare_label.grid(row=6, column=0, columnspan=3, pady=(2, 8))
 
         self.root.mainloop()
 
     def human_move(self, i, j):
         if self.board[i][j] != EMPTY:
             return
-        self.board[i][j] = HUMAN
+
+        apply_move(self.board, (i, j), HUMAN)
         self.update_ui()
 
         if self.check_end():
             return
 
-        self.info.config(text="AI thinking...")
-        self.root.after(100, self.ai_move)
+        self.turn_label.config(text="AI thinking...")
+        self.disable_board()
 
-    def ai_move(self):
+        # run AI after a tiny delay so UI updates
+        self.root.after(80, self.ai_turn)
+
+    def ai_turn(self):
+        # IMPORTANT: compare BOTH algorithms on the same state
+        mm_mv, mm_nodes, mm_t = best_move_minimax(self.board)
+        ab_mv, ab_nodes, ab_t = best_move_alphabeta(self.board)
+
+        # choose actual move based on selected algorithm
         if self.algorithm.get() == "minimax":
-            mv, nodes, t = best_move_minimax(self.board)
-            name = "Minimax"
+            chosen_mv = mm_mv
+            chosen_name = "Minimax"
         else:
-            mv, nodes, t = best_move_alphabeta(self.board)
-            name = "Alpha-Beta"
+            chosen_mv = ab_mv
+            chosen_name = "Alpha-Beta"
 
-        apply_move(self.board, mv, AI)
+        # apply chosen move
+        apply_move(self.board, chosen_mv, AI)
         self.update_ui()
 
-        self.stats.config(
-            text=f"{name} | Nodes: {nodes} | Time: {t*1000:.2f} ms"
+        # show AI chosen move as 1..9
+        k = chosen_mv[0] * 3 + chosen_mv[1] + 1
+        self.ai_move_label.config(text=f"AI move ({chosen_name}): {k}")
+
+        # show comparison side-by-side
+        self.compare_label.config(
+            text=(
+                f"Minimax    | Nodes: {mm_nodes:<6} | Time: {mm_t*1000:>8.3f} ms\n"
+                f"Alpha-Beta | Nodes: {ab_nodes:<6} | Time: {ab_t*1000:>8.3f} ms"
+            )
         )
 
         if not self.check_end():
-            self.info.config(text="Your turn (X)")
+            self.turn_label.config(text="Your turn (X)")
+            self.enable_board()
 
     def update_ui(self):
         for i in range(3):
             for j in range(3):
                 self.buttons[i][j].config(text=self.board[i][j])
 
+    def disable_board(self):
+        for i in range(3):
+            for j in range(3):
+                self.buttons[i][j].config(state=tk.DISABLED)
+
+    def enable_board(self):
+        for i in range(3):
+            for j in range(3):
+                if self.board[i][j] == EMPTY:
+                    self.buttons[i][j].config(state=tk.NORMAL)
+
     def check_end(self):
         w = winner(self.board)
         if w or is_full(self.board):
             if w == HUMAN:
-                messagebox.showinfo("Result", "You win!")
+                messagebox.showinfo("Result", "You win! (X)")
             elif w == AI:
-                messagebox.showinfo("Result", "AI wins!")
+                messagebox.showinfo("Result", "AI wins! (O)")
             else:
                 messagebox.showinfo("Result", "Draw!")
             self.root.destroy()
