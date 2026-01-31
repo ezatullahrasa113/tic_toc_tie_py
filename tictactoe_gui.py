@@ -61,6 +61,12 @@ def apply_move(b: Board, mv: Tuple[int, int], p: str) -> None:
 def undo_move(b: Board, mv: Tuple[int, int]) -> None:
     b[mv[0]][mv[1]] = EMPTY
 
+# ================= MOVE ORDERING (Alpha-Beta only) =================
+def ordered_moves(b: Board) -> List[Tuple[int, int]]:
+    # Center -> corners -> edges
+    pref = [(1, 1), (0, 0), (0, 2), (2, 0), (2, 2), (0, 1), (1, 0), (1, 2), (2, 1)]
+    return [mv for mv in pref if b[mv[0]][mv[1]] == EMPTY]
+
 # ================= MINIMAX =================
 
 def minimax(b: Board, depth: int, is_max: bool, counter: List[int]) -> int:
@@ -113,7 +119,7 @@ def alphabeta(b: Board, depth: int, is_max: bool, alpha: int, beta: int, counter
 
     if is_max:
         value = -10_000
-        for mv in available_moves(b):
+        for mv in ordered_moves(b):  # <-- move ordering
             apply_move(b, mv, AI)
             value = max(value, alphabeta(b, depth + 1, False, alpha, beta, counter))
             undo_move(b, mv)
@@ -123,7 +129,7 @@ def alphabeta(b: Board, depth: int, is_max: bool, alpha: int, beta: int, counter
         return value
     else:
         value = 10_000
-        for mv in available_moves(b):
+        for mv in ordered_moves(b):  # <-- move ordering
             apply_move(b, mv, HUMAN)
             value = min(value, alphabeta(b, depth + 1, True, alpha, beta, counter))
             undo_move(b, mv)
@@ -140,7 +146,7 @@ def best_move_alphabeta(b: Board) -> Tuple[Tuple[int, int], int, float]:
     best_mv = None
     alpha, beta = -10_000, 10_000
 
-    for mv in available_moves(b):
+    for mv in ordered_moves(b):  # <-- move ordering
         apply_move(b, mv, AI)
         val = alphabeta(b, 1, False, alpha, beta, counter)
         undo_move(b, mv)
@@ -374,6 +380,11 @@ class TicTacToeGUI:
 
     # ---------- AI move + comparison ----------
     def ai_turn(self):
+        # guard: اگر بازی تمام شده، AI حرکت نکند
+        if winner(self.board) is not None or is_full(self.board):
+            self.check_end()
+            return
+
         # Compare BOTH algorithms on the same state
         mm_mv, mm_nodes, mm_t = best_move_minimax(self.board)
         ab_mv, ab_nodes, ab_t = best_move_alphabeta(self.board)
@@ -438,5 +449,5 @@ class TicTacToeGUI:
 
 
 if __name__ == "__main__":
-    TicTacToeGUI()
-    tk.mainloop()
+    app = TicTacToeGUI()
+    app.root.mainloop()
